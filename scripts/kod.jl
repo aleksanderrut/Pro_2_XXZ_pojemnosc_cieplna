@@ -1,14 +1,16 @@
 using SparseArrays
 using LinearAlgebra
+using DelimitedFiles
+using SparseArrays
 
-# ==== GENEROWANIE BAZY ====
+# Generowanie bazy XXZ
 function gen_baza_xxz(L::Int; mag=:all)
     # Rozmiar bazy w zależności od trybu
     rozmiar_pelnej_bazy = 1 << L # przesówanie bitowe jedynki w lewo o L mijesc
-    if magnetyzacja == :all
+    if mag == :all
         liczba_stanow = rozmiar_pelnej_bazy
         sektory = 0:L #sektor zdefiniowany prz liczbę N_up w nim
-    elseif magnetyzacja isa Real
+    elseif mag isa Real
         N_up = L/2 + mag # N_up = (N_up+N_down)/2 + (N_up - N_down)/2 
         N_up = Int(N_up) # tka dla pewność
         liczba_stanow = binomial(L, N_up)
@@ -30,10 +32,14 @@ function gen_baza_xxz(L::Int; mag=:all)
     for (i, state) in enumerate(baza_int)
         indeks_odwrotny[state] = i
     end
-    return baza_int, indeks_odwrotny
+    println("LICZBA STANOW: ")
+    println(liczba_stanow)
+    # Zamiana bazy na zapis binarny
+    baza_bit = [string(state, base=2, pad=L) for state in baza_int]
+    return baza_int, baza_bit, indeks_odwrotny
 end
 
-# ==== GENEROWANIE HAMILTONIANU XXZ ====
+# Generowanie ham XXZ
 function gen_ham_xxz(L::Int, J::Real, Delta::Real, PBC::Bool, baza_int::Vector{Int}, indeks_odwrotny::Dict{Int, Int})
     #tworzenie macierzy Hamiltonianu
     ile_stanow = length(baza_int)
@@ -49,16 +55,13 @@ function gen_ham_xxz(L::Int, J::Real, Delta::Real, PBC::Bool, baza_int::Vector{I
     for i in 1:length(baza_int)
         state = baza_int[i]
         #pętla po możliwych przeskokach
-        for s in 1:liczba_polaczen
+        for bit_s in 0:(liczba_polaczen - 1)
             #struktura poąłczeń (dla PBC ostatni łączy się z pierwszym)
-            if s == L
-                t = 1
+            if bit_s == L - 1 
+                bit_t = 0
             else
-                t = s + 1
+                bit_t = bit_s + 1
             end
-            #pozycje bitów bity numerujemy od najstarszych, czyli jakby od prawej do lewej
-            bit_s = L - s
-            bit_t = L - t
             #odczyt spinów z uzyciem bitowego and (bit&1) 0 = down, 1 = up
             spin_s = (state >> bit_s) & 1
             spin_t = (state >> bit_t) & 1
@@ -69,7 +72,6 @@ function gen_ham_xxz(L::Int, J::Real, Delta::Real, PBC::Bool, baza_int::Vector{I
             else
                 H[i, i] -= (J*Delta)/4
             end
-
             # CZĘŚĆ POZADIAGONALNA
             if spin_s != spin_t
                 # Zamiana dwóch spinów przez XOR - ⊻ a to | - to or
@@ -82,22 +84,69 @@ function gen_ham_xxz(L::Int, J::Real, Delta::Real, PBC::Bool, baza_int::Vector{I
     return H
 end
 
-
-function main()
-    L = 6
-    N_up = 3
-    J = 1.0
-    Delta = 0.5
-    pbc = true
-
-    # :single -> jeden sektor Sz
-    # :all    -> wszystkie sektory Sz
-    sector_mode = :single
-
-    baza_int, indeks_odwrotny = gen_baza_xxz(M, N_up; sector_mode=sector_mode)
-    H = gen_ham_xxz(M, J, Delta, pbc, baza_int, indeks_odwrotny)
-
+# Zapis do pliku .data
+function save_data(data, filename)
+    folder = raw"C:\Users\aleks\Desktop\PWR\Numeryczne metody badania układów kwantowych\Pro_2_XXZ_pojemność_cieplna\data"
+    filename *= ".data"
+    filepath = joinpath(folder, filename)
+    writedlm(filepath, data)
+    println("Zapisano do pliku:")
+    println(filepath)
 end
 
+function main()
+    J = 1.0
+    # mag = :all
+    mag = 0
+    PBC = true
+
+    # Delta_values = [0.5, 1.0, 2.0]
+    Delta_values = [0.5, 1.0, 2.0]
+    #L_values = [2, 4, 6, 8, 10, 12]
+    L_values = [2, 4, 6, 8, 10, 12, 14]
+
+
+    for Delta in Delta_values
+        for L_x in L_values
+            #Diagonalizacja
+            println("Obliczenia: Delta = $Delta, L = $L_x")
+            baza_int, baza_bit, indeks_odwrotny = gen_baza_xxz(L_x; mag)
+            #save_data(baza_bit, "baza_PBC$(PBC)_L_x$(L_x)_Delta$(Delta)_J$(J)_mag$(mag)")
+            H = gen_ham_xxz(L_x, J, Delta, PBC, baza_int, indeks_odwrotny)
+            #save_data(H, "ham_PBC$(PBC)_L_x$(L_x)_Delta$(Delta)_J$(J)_mag$(mag)")
+            eig = eigen(Symmetric(H))
+            wartosci_wlasne = eig.values
+            #wektory_wlasne = eig.vectors
+            save_data(wartosci_wlasne, "eigenvalues_PBC$(PBC)_L_x$(L_x)_Delta$(Delta)_J$(J)_mag$(mag)")
+
+            #Pojemność Cieplna Cv
+            E = wartosci_wlasne
+            E0 = wartosci_wlasne[1]
+            println("E_0: ")
+            println(E0)
+            ile_T = 200
+            T_tablica = collect(range(0.05, 2.0, ile_T))
+            wyniki_Cv = zeros(Float64, ile_T, 4)
+            for i in 1:ile_T
+                T = T_tablica[i]
+                #suma statystyczna
+                w = exp.(-(E .- E0) ./ T)
+                Z = sum(w)
+                #średnia energia <E>
+                E_mean = sum(E .* w) / Z
+                #średni kwadrat energii <E²>
+                E2_mean = sum(E.^2 .* w) / Z
+                #pojemność cieplna to już w pełni z wekotrami
+                Cv = (E2_mean - E_mean^2) / T^2
+                #tablica wyników:
+                wyniki_Cv[i, 1] = T
+                wyniki_Cv[i, 2] = E_mean
+                wyniki_Cv[i, 3] = E2_mean
+                wyniki_Cv[i, 4] = Cv
+            end
+            save_data(wyniki_Cv, "Cv_PBC$(PBC)_L_x$(L_x)_Delta$(Delta)_J$(J)_mag$(mag)")
+        end
+    end
+end
 
 main()
