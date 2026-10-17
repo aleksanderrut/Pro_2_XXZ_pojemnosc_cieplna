@@ -1,129 +1,84 @@
 using SparseArrays
 using LinearAlgebra
 
-# ==== GENEROWANIE BAZY XXZ ====
-function gen_baza_xxz(L::Int, N_up::Int; sector_mode::Symbol=:single)
+# ==== GENEROWANIE BAZY ====
+function gen_baza_xxz(L::Int; mag=:all)
     # Rozmiar bazy w zależności od trybu
-    rozmiar_pelnej_bazy = 1 << L
-    if sector_mode == :single
-        liczba_stanow = binomial(L, N_up)
-        sektory = N_up:N_up
-    elseif sector_mode == :all
+    rozmiar_pelnej_bazy = 1 << L # przesówanie bitowe jedynki w lewo o L mijesc
+    if magnetyzacja == :all
         liczba_stanow = rozmiar_pelnej_bazy
-        sektory = 0:L
+        sektory = 0:L #sektor zdefiniowany prz liczbę N_up w nim
+    elseif magnetyzacja isa Real
+        N_up = L/2 + mag # N_up = (N_up+N_down)/2 + (N_up - N_down)/2 
+        N_up = Int(N_up) # tka dla pewność
+        liczba_stanow = binomial(L, N_up)
+        sektory = N_up:N_up #sektor zdefiniowany prz liczbę N_up w nim
     end
-
+    # Tworzenie baz z uwzgledeniem sektorów magnetyzacji
     baza_int = zeros(Int, liczba_stanow)
-
-    i = 1
-
+    i = 1 # bo Julia
     for N_up_sektor in sektory
         for state in 0:(rozmiar_pelnej_bazy - 1)
-
             if count_ones(state) == N_up_sektor
                 baza_int[i] = state
-                i += 1
+                i = i + 1
             end
-
         end
     end
-
-    # Odwzorowanie: stan -> indeks w bazie
-    indeks_odwrotny = Dict{Int, Int}()
-
+    # Odwzorowanie odworotne stan -> indeks w bazie, zapisanw jako słownik
+    indeks_odwrotny = Dict{Int, Int}() # typ słownik w juli
     for (i, state) in enumerate(baza_int)
         indeks_odwrotny[state] = i
     end
-
     return baza_int, indeks_odwrotny
 end
 
-
-# ============================================================
-# GENEROWANIE HAMILTONIANU XXZ
-# ============================================================
-
-function gen_ham_xxz(M::Int, J::Real, Delta::Real, pbc::Bool,
-                     baza_int::Vector{Int},
-                     indeks_odwrotny::Dict{Int, Int})
-
+# ==== GENEROWANIE HAMILTONIANU XXZ ====
+function gen_ham_xxz(L::Int, J::Real, Delta::Real, PBC::Bool, baza_int::Vector{Int}, indeks_odwrotny::Dict{Int, Int})
+    #tworzenie macierzy Hamiltonianu
     ile_stanow = length(baza_int)
+    H = zeros(Float64, ile_stanow, ile_stanow)
 
-    # Tablice do konstrukcji macierzy rzadkiej
-    rows = Int[]
-    cols = Int[]
-    vals = Float64[]
-
-    # Lista par sąsiednich spinów
-    bonds = [(s, s + 1) for s in 1:(M - 1)]
-
-    # Dodajemy połączenie okresowe
-    if pbc && M > 2
-        push!(bonds, (M, 1))
+    # Liczba połączeń między sąsiednimi spinami
+    liczba_polaczen = L - 1
+    if PBC == true && L > 2
+        liczba_polaczen += 1
     end
 
-
-    # ========================================================
-    # KONSTRUKCJA HAMILTONIANU
-    # ========================================================
-
-    for (i, state) in enumerate(baza_int)
-
-        diagonal = 0.0
-
-        for (s, t) in bonds
-
-            # Pozycje bitów odpowiadających spinom s oraz t
-            bit_s = M - s
-            bit_t = M - t
-
-            # Odczyt spinów: 0 = down, 1 = up
+    #pętla po stanch
+    for i in 1:length(baza_int)
+        state = baza_int[i]
+        #pętla po możliwych przeskokach
+        for s in 1:liczba_polaczen
+            #struktura poąłczeń (dla PBC ostatni łączy się z pierwszym)
+            if s == L
+                t = 1
+            else
+                t = s + 1
+            end
+            #pozycje bitów bity numerujemy od najstarszych, czyli jakby od prawej do lewej
+            bit_s = L - s
+            bit_t = L - t
+            #odczyt spinów z uzyciem bitowego and (bit&1) 0 = down, 1 = up
             spin_s = (state >> bit_s) & 1
             spin_t = (state >> bit_t) & 1
 
-
-            # ------------------------------------------------
             # CZĘŚĆ DIAGONALNA
-            # J * Delta * Sz_s * Sz_t
-            # ------------------------------------------------
-
             if spin_s == spin_t
-                diagonal += J * Delta / 4
+                H[i, i] += (J*Delta)/4
             else
-                diagonal -= J * Delta / 4
+                H[i, i] -= (J*Delta)/4
             end
 
-
-            # ------------------------------------------------
             # CZĘŚĆ POZADIAGONALNA
-            # J/2 * (S+_s S-_t + S-_s S+_t)
-            # ------------------------------------------------
-
             if spin_s != spin_t
-
-                # Maska wskazująca dwa spiny
-                mask = (1 << bit_s) | (1 << bit_t)
-
-                # Zamiana spinów przez XOR
-                new_state = state ⊻ mask
-
-                # Indeks nowego stanu w bazie
-                new_index = indeks_odwrotny[new_state]
-
-                push!(rows, new_index)
-                push!(cols, i)
-                push!(vals, Float64(J / 2))
+                # Zamiana dwóch spinów przez XOR - ⊻ a to | - to or
+                new_state = state ⊻ ((1 << bit_s) | (1 << bit_t))
+                new_index = indeks_odwrotny[new_state] # Indeks nowego stanu w bazie
+                H[new_index, i] += J / 2
             end
         end
-
-        # Dodanie elementu diagonalnego
-        push!(rows, i)
-        push!(cols, i)
-        push!(vals, diagonal)
     end
-
-    H = sparse(rows, cols, vals, ile_stanow, ile_stanow)
-
     return H
 end
 
