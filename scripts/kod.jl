@@ -9,12 +9,12 @@ function gen_baza_xxz(L::Int; mag=:all)
     rozmiar_pelnej_bazy = 1 << L # przesówanie bitowe jedynki w lewo o L mijesc
     if mag == :all
         liczba_stanow = rozmiar_pelnej_bazy
-        sektory = 0:L #sektor zdefiniowany prz liczbę N_up w nim
+        sektory = 0:L #sektor zdefiniowany przez liczbę N_up w nim
     elseif mag isa Real
         N_up = L/2 + mag # N_up = (N_up+N_down)/2 + (N_up - N_down)/2 
         N_up = Int(N_up) # tka dla pewność
         liczba_stanow = binomial(L, N_up)
-        sektory = N_up:N_up #sektor zdefiniowany prz liczbę N_up w nim
+        sektory = N_up:N_up #sektor zdefiniowany prz liczbę N_up w nim np.3:3 -> 3
     end
     # Tworzenie baz z uwzgledeniem sektorów magnetyzacji
     baza_int = zeros(Int, liczba_stanow)
@@ -98,16 +98,19 @@ function main()
     J = 1.0
     # mag = :all
     mag = 0
-    PBC = true
+    PBC = false
 
-    # Delta_values = [0.5, 1.0, 2.0]
     Delta_values = [0.5, 1.0, 2.0]
-    #L_values = [2, 4, 6, 8, 10, 12]
+    # Delta_values = [1.0]
+    #L_values = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     L_values = [2, 4, 6, 8, 10, 12, 14]
-
+    # L_values = [2]
 
     for Delta in Delta_values
-        for L_x in L_values
+        #tabela na maksima, format: L, max_Cv, T_Cv_max
+        wyniki_max_Cv = zeros(Float64, length(L_values), 3)
+
+        for (idx_L, L_x) in enumerate(L_values)
             #Diagonalizacja
             println("Obliczenia: Delta = $Delta, L = $L_x")
             baza_int, baza_bit, indeks_odwrotny = gen_baza_xxz(L_x; mag)
@@ -122,8 +125,6 @@ function main()
             #Pojemność Cieplna Cv
             E = wartosci_wlasne
             E0 = wartosci_wlasne[1]
-            println("E_0: ")
-            println(E0)
             ile_T = 200
             T_tablica = collect(range(0.05, 2.0, ile_T))
             wyniki_Cv = zeros(Float64, ile_T, 4)
@@ -145,7 +146,16 @@ function main()
                 wyniki_Cv[i, 4] = Cv
             end
             save_data(wyniki_Cv, "Cv_PBC$(PBC)_L_x$(L_x)_Delta$(Delta)_J$(J)_mag$(mag)")
+
+            #znajdowanie maksium 
+            max_Cv, idx_max = findmax(wyniki_Cv[:, 4])
+            T_Cv_max = T_tablica[idx_max]
+            #zapis do tabeli
+            wyniki_max_Cv[idx_L, 1] = L_x
+            wyniki_max_Cv[idx_L, 2] = max_Cv
+            wyniki_max_Cv[idx_L, 3] = T_Cv_max
         end
+        save_data(wyniki_max_Cv, "Cv_max_PBC$(PBC)_Delta$(Delta)_J$(J)_mag$(mag)")
     end
 end
 

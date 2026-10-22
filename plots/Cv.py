@@ -8,14 +8,15 @@ FOLDER = Path(
     r"C:\Users\aleks\Desktop\PWR\Numeryczne metody badania układów kwantowych\Pro_2_XXZ_pojemność_cieplna\data"
 )
 
+# L_VALUES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 L_VALUES = [2, 4, 6, 8, 10, 12, 14]
 DELTA_WYBRANA = 2.0
 J_WYBRANE = 1.0
-MAG_WYBRANA = "all"    # "0", "1", "-1", "all"
-PBC_WYBRANE = True
+MAG_WYBRANA = "0"    # "0", "1", "-1", "all"
+PBC_WYBRANE = False
 
 # Zakres temperatur T/J
-T_MIN = 0.05
+T_MIN = 0.0
 T_MAX = 2.0
 
 FOLDER_WYKRESY = FOLDER.parent / "plots"
